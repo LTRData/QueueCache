@@ -201,6 +201,7 @@
     <ClCompile Include="ioctl.cpp" />
     <ClCompile Include="mainwdm.cpp" />
     <ClCompile Include="partialirp.cpp" />
+    <ClCompile Include="queue.cpp" />
     <ClCompile Include="read.cpp" />
     <ClCompile Include="thread.cpp" />
     <ClCompile Include="write.cpp" />
@@ -208,6 +209,7 @@
   <ItemGroup>
     <ClInclude Include="qcstats.h" />
     <ClInclude Include="qcache.h" />
+    <ClInclude Include="wkmem.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

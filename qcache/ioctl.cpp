@@ -5,13 +5,15 @@ QCacheDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
     auto device_extension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
 
-    if (device_extension->Statistics.Size.QuadPart == 0)
+    auto io_stack = IoGetCurrentIrpStackLocation(Irp);
+
+    if ((device_extension->Statistics.Size.QuadPart == 0) ||
+        (io_stack->MajorFunction == IRP_MJ_SCSI &&
+            io_stack->MinorFunction == IRP_MN_SCSI_CLASS))
     {
         return QCacheSendToNextDriver(DeviceObject, Irp);
     }
 
-    auto io_stack = IoGetCurrentIrpStackLocation(Irp);
-    
     NTSTATUS status;
 
     Irp->IoStatus.Information = 0;
@@ -42,7 +44,31 @@ QCacheDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
         return status;
     }
 
+    case IOCTL_QCACHE_ON:
+        device_extension->Statistics.IsCached = TRUE;
+
+        status = STATUS_SUCCESS;
+
+        Irp->IoStatus.Status = status;
+        Irp->IoStatus.Information = 0;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return status;
+
+    case IOCTL_QCACHE_OFF:
+        device_extension->Statistics.IsCached = FALSE;
+
+        return QCacheQueueIrp(device_extension, Irp);
+
+    case IOCTL_QCACHE_FLUSH:
+        return QCacheQueueIrp(device_extension, Irp);
+
     default:
+        if (ACCESS_FROM_CTL_CODE(
+            io_stack->Parameters.DeviceIoControl.IoControlCode) != 0)
+        {
+            return QCacheQueueIrp(device_extension, Irp);
+        }
+
         break;
     }
 

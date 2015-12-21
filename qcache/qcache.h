@@ -32,35 +32,7 @@
 #define INITGUID
 
 #include "qcstats.h"
-
-//
-// Number of bits to use in block size mask. For instance,
-// 21 = 2 MB, 19 = 512 KB, 16 = 64 K, 12 = 4 K etc.
-// The smaller block size the more non-paged pool is needed
-// for the allocation table. On the other hand, smaller block
-// sizes mean less space likely wasted on diff device to fill
-// up complete blocks as new blocks are allocated by small
-// write requests.
-//
-#define DIFF_BLOCK_BITS                         16
-
-//
-// Macros for easier block/offset calculation
-//
-#define DIFF_BLOCK_SIZE                         (1ULL << DIFF_BLOCK_BITS)
-#define DIFF_BLOCK_OFFSET_MASK                  (DIFF_BLOCK_SIZE - 1)
-#define DIFF_BLOCK_BASE_MASK                    (~(DIFF_BLOCK_SIZE - 1))
-#define DIFF_GET_BLOCK_NUMBER(a)                ((a) >> DIFF_BLOCK_BITS)
-#define DIFF_GET_NUMBER_OF_BLOCKS(a)            (((a) + DIFF_BLOCK_OFFSET_MASK) >> DIFF_BLOCK_BITS)
-#define DIFF_GET_BLOCK_OFFSET(a)                ((ULONG)((a) & DIFF_BLOCK_OFFSET_MASK))
-#define DIFF_GET_BLOCK_BASE_FROM_ABS_OFFSET(a)  ((a) & DIFF_BLOCK_BASE_MASK)
-
-#define DIFF_BLOCK_UNALLOCATED                  (0x00000000UL)
-
-#define SECTOR_BITS                             9
-#define SECTOR_SIZE                             (1L << SECTOR_BITS)
-
-#define IDLE_TRIM_BLOCKS_INTERVAL               32
+#include "wkmem.hpp"
 
 #ifdef _WIN64
 #define InterlockedAddPtr InterlockedAdd64
@@ -79,204 +51,7 @@
 #define ExFreePool(a) ExFreePoolWithTag(a,POOL_TAG)
 #endif
 
-inline void * __CRTDECL operator new(size_t Size)
-{
-    void * result = ExAllocatePoolWithTag(NonPagedPool, Size, POOL_TAG);
-
-    if (result != NULL)
-    {
-        RtlZeroMemory(result, Size);
-    }
-
-    return result;
-}
-
-inline void * __CRTDECL operator new(size_t Size, UCHAR FillByte)
-{
-    void * result = ExAllocatePoolWithTag(NonPagedPool, Size, POOL_TAG);
-
-    if (result != NULL)
-    {
-        RtlFillMemory(result, Size, FillByte);
-    }
-
-    return result;
-}
-
-inline void __CRTDECL operator delete(void * Ptr)
-{
-    if (Ptr != NULL)
-    {
-        ExFreePoolWithTag(Ptr, POOL_TAG);
-    }
-}
-
-template<typename T> class WPoolMem
-{
-protected:
-    T *ptr;
-    SIZE_T bytecount;
-
-    explicit WPoolMem(T *pBlk, SIZE_T AllocationSize)
-        : ptr(pBlk),
-        bytecount(pBlk != NULL ? AllocationSize : 0) { }
-
-public:
-    operator bool()
-    {
-        return ptr != NULL;
-    }
-
-    bool operator!()
-    {
-        return ptr == NULL;
-    }
-
-    operator T*()
-    {
-        return ptr;
-    }
-
-    T* operator ->()
-    {
-        return ptr;
-    }
-
-    T& operator[](int i)
-    {
-        return ptr[i];
-    }
-
-    T* operator+(int i)
-    {
-        return ptr + i;
-    }
-
-    T* operator-(int i)
-    {
-        return ptr - i;
-    }
-
-    T* operator =(T *pBlk)
-    {
-        Free();
-        return ptr = pBlk;
-    }
-
-    SIZE_T Count() const
-    {
-        return GetSize() / sizeof(T);
-    }
-
-    SIZE_T GetSize() const
-    {
-        return ptr != NULL ? bytecount : 0;
-    }
-
-    void Zero() const
-    {
-        RtlZeroMemory(ptr, GetSize());
-    }
-
-    void Fill(int value) const
-    {
-        RtlFillMemory(ptr, GetSize(), fill);
-    }
-
-    void Free()
-    {
-        if (ptr != NULL)
-        {
-            ExFreePool(ptr);
-            ptr = NULL;
-        }
-    }
-
-    void Clear()
-    {
-        if ((ptr != NULL) && (bytecount > 0))
-        {
-            RtlZeroMemory(ptr, bytecount);
-        }
-    }
-
-    T* Abandon()
-    {
-        T* ab_ptr = ptr;
-        ptr = NULL;
-        bytecount = 0;
-        return ab_ptr;
-    }
-
-    WPoolMem() :
-        ptr(NULL),
-        bytecount(0) { }
-
-    ~WPoolMem()
-    {
-        Free();
-    }
-};
-
-template<typename T> class WPagedPoolMem : public WPoolMem < T >
-{
-public:
-    explicit WPagedPoolMem(SIZE_T AllocateSize)
-        : WPoolMem((T*)ExAllocatePool(PagedPool, AllocateSize), AllocateSize)
-    {
-    }
-};
-
-template<typename T> class WNonPagedPoolMem : public WPoolMem < T >
-{
-public:
-    explicit WNonPagedPoolMem(SIZE_T AllocateSize)
-        : WPoolMem((T*)ExAllocatePool(NonPagedPool, AllocateSize), AllocateSize)
-    {
-    }
-};
-
-class WHandle
-{
-private:
-    HANDLE h;
-
-public:
-    operator bool()
-    {
-        return h != NULL;
-    }
-
-    bool operator !()
-    {
-        return h == NULL;
-    }
-
-    operator HANDLE()
-    {
-        return h;
-    }
-
-    void Close()
-    {
-        if (h != NULL)
-        {
-            ZwClose(h);
-            h = NULL;
-        }
-    }
-
-    WHandle() :
-        h(NULL) { }
-
-    explicit WHandle(HANDLE h) :
-        h(h) { }
-
-    ~WHandle()
-    {
-        Close();
-    }
-};
+#define ACCESS_FROM_CTL_CODE(ctrlCode)          ((UCHAR)((ctrlCode >> 14) & 0x03))
 
 //
 // Device Extension
@@ -580,6 +355,7 @@ extern "C"
     _Dispatch_type_(IRP_MJ_WRITE) DRIVER_DISPATCH QCacheWrite;
 
     _Dispatch_type_(IRP_MJ_DEVICE_CONTROL)
+        _Dispatch_type_(IRP_MJ_INTERNAL_DEVICE_CONTROL)
         DRIVER_DISPATCH QCacheDeviceControl;
 
     _Dispatch_type_(IRP_MJ_SHUTDOWN)
@@ -604,7 +380,7 @@ extern "C"
     KSTART_ROUTINE QCacheDeviceWorkerThread;
 
     VOID
-        QCacheDeferredIrp(
+        QCacheDispatchQueuedItem(
             PDEVICE_EXTENSION DeviceExtension,
             PWRITE_QUEUE_ITEM Item);
 
@@ -622,10 +398,6 @@ extern "C"
 
     NTSTATUS
         QCacheQueueIrp(IN PDEVICE_EXTENSION DeviceExtension,
-            IN PIRP Irp);
-
-    NTSTATUS
-        QCacheDeferIrp(IN PDEVICE_EXTENSION DeviceExtension,
             IN PIRP Irp);
 
     NTSTATUS
@@ -650,7 +422,7 @@ extern "C"
             OUT PIO_STATUS_BLOCK IoStatus = NULL);
 
     NTSTATUS
-        QCacheInitializeDiffDevice(IN PDEVICE_EXTENSION DeviceExtension);
+        QCacheInitializeDevice(IN PDEVICE_EXTENSION DeviceExtension);
 
     FORCEINLINE
         PDEVICE_OBJECT
@@ -694,7 +466,8 @@ extern "C"
     FORCEINLINE
         VOID
         __drv_requiresIRQL(DISPATCH_LEVEL)
-        __drv_when(*LowestAssumedIrql < DISPATCH_LEVEL, __drv_restoresIRQLGlobal(QueuedSpinLock, LockHandle))
+        //__drv_when(*LowestAssumedIrql < DISPATCH_LEVEL, __drv_restoresIRQLGlobal(QueuedSpinLock, LockHandle))
+        __drv_restoresIRQLGlobal(QueuedSpinLock, LockHandle)
         QCacheReleaseLock_x64(
             __in __deref __drv_releasesExclusiveResource(KeQueuedSpinLockType)
             PKLOCK_QUEUE_HANDLE LockHandle,
@@ -716,6 +489,7 @@ extern "C"
     FORCEINLINE
         VOID
         __drv_maxIRQL(DISPATCH_LEVEL)
+        __drv_when(LowestAssumedIrql < DISPATCH_LEVEL, __drv_savesIRQLGlobal(SpinLock, OldIrql))
         __drv_when(LowestAssumedIrql < DISPATCH_LEVEL, __drv_setsIRQL(DISPATCH_LEVEL))
         QCacheAcquireLock_x86(__inout __deref __drv_acquiresExclusiveResource(KeSpinLockType) PKSPIN_LOCK SpinLock,
             __out __deref __drv_when(LowestAssumedIrql < DISPATCH_LEVEL, __drv_savesIRQL) PKIRQL OldIrql,
@@ -724,6 +498,8 @@ extern "C"
         if (LowestAssumedIrql >= DISPATCH_LEVEL)
         {
             ASSERT(KeGetCurrentIrql() >= DISPATCH_LEVEL);
+
+            *OldIrql = DISPATCH_LEVEL;
 
             KeAcquireSpinLockAtDpcLevel(SpinLock);
         }
@@ -736,9 +512,10 @@ extern "C"
     FORCEINLINE
         VOID
         __drv_requiresIRQL(DISPATCH_LEVEL)
+        __drv_restoresIRQLGlobal(SpinLock, OldIrql)
         QCacheReleaseLock_x86(
             __inout __deref __drv_releasesExclusiveResource(KeSpinLockType) PKSPIN_LOCK SpinLock,
-            __in __drv_when(*LowestAssumedIrql < DISPATCH_LEVEL, __drv_restoresIRQL) KIRQL OldIrql,
+            __in KIRQL OldIrql,
             __inout __deref PKIRQL LowestAssumedIrql)
     {
         ASSERT(KeGetCurrentIrql() >= DISPATCH_LEVEL);

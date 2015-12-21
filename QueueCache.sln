@@ -103,11 +103,11 @@ Global
 		SccNumberOfProjects = 3
 		SccEnterpriseProvider = {4CA58AB2-18FA-4F8D-95D4-32DDF27D184C}
 		SccLocalPath0 = .
-		SccProjectUniqueName1 = qcache\\qcache.vcxproj
-		SccProjectName1 = qcache
-		SccLocalPath1 = qcache
-		SccProjectUniqueName2 = qcachecmd\\qcachecmd.vcxproj
-		SccProjectName2 = qcachecmd
-		SccLocalPath2 = qcachecmd
+		SccProjectUniqueName1 = qcachecmd\\qcachecmd.vcxproj
+		SccProjectName1 = qcachecmd
+		SccLocalPath1 = qcachecmd
+		SccProjectUniqueName2 = qcache\\qcache.vcxproj
+		SccProjectName2 = qcache
+		SccLocalPath2 = qcache
 	EndGlobalSection
 EndGlobal

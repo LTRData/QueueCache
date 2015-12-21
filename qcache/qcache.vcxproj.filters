@@ -37,12 +37,18 @@
     <ClCompile Include="thread.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="queue.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="qcache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="qcstats.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="wkmem.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

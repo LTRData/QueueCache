@@ -1,9 +1,20 @@
 #include "qcache.h"
 
+//
+// Handles IRP_MJ_READ by first walking the pending lazy-write
+// queue and only then if any ranges left to read, request those
+// reads from underlying driver.
+//
+
 NTSTATUS
 QCacheRead(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
     auto device_extension = (PDEVICE_EXTENSION)DeviceObject->DeviceExtension;
+
+    if (device_extension->Statistics.Size.QuadPart == 0)
+    {
+        return QCacheSendToNextDriver(DeviceObject, Irp);
+    }
 
     Irp->IoStatus.Information = 0;
 
@@ -58,7 +69,7 @@ QCacheRead(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
         return STATUS_END_OF_MEDIA;
     }
 
-    PUCHAR system_buffer = (PUCHAR)
+    auto system_buffer = (PUCHAR)
         MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
 
     if (system_buffer == NULL)
@@ -73,7 +84,7 @@ QCacheRead(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 
     RTL_BITMAP bitmap;
 
-    WNonPagedPoolMem<ULONG> bitmap_buffer(
+    WPoolMem<ULONG, NonPagedPool> bitmap_buffer(
         (io_stack->Parameters.Read.Length >> 9) + sizeof(ULONG) - 1);
 
     if (!bitmap_buffer)
@@ -86,7 +97,7 @@ QCacheRead(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
-    bitmap_buffer.Zero();
+    bitmap_buffer.Clear();
 
     RtlInitializeBitMap(&bitmap, bitmap_buffer,
         io_stack->Parameters.Read.Length >> 9);
@@ -100,7 +111,8 @@ QCacheRead(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
     QCacheAcquireLock(&device_extension->WriteQueueLock, &lock_handle,
         lowest_irql);
 
-    for (auto entry = device_extension->WriteQueue.Flink;
+    for (
+        auto entry = device_extension->WriteQueue.Flink;
         entry != &device_extension->WriteQueue;
         entry = entry->Flink)
     {
@@ -198,7 +210,7 @@ QCacheRead(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
         LARGE_INTEGER lower_offset;
         lower_offset.QuadPart =
             io_stack->Parameters.Read.ByteOffset.QuadPart +
-            (clear_index << 9);
+            ((LONGLONG)clear_index << 9);
 
         auto lower_irp = scatter->BuildIrp(
             IRP_MJ_READ,
@@ -213,7 +225,7 @@ QCacheRead(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
         }
 
         InterlockedAdd64(&device_extension->Statistics.ReadBytesFromOriginal,
-            clear_bits << 9);
+            (LONGLONG)clear_bits << 9);
 
         IoCallDriver(device_extension->TargetDeviceObject, lower_irp);
 

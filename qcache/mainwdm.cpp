@@ -73,11 +73,11 @@ STATUS_SUCCESS if successful
 
     UNICODE_STRING event_path;
     RtlInitUnicodeString(&event_path,
-        L"\\Device\\" QCACHE_FULL_EVENT_NAME);
+        L"\\Device\\" QCACHE_OUT_OF_MEMORY_EVENT_NAME);
 
     KdBreakPoint();
 
-    WPagedPoolMem<SECURITY_DESCRIPTOR> event_security_descriptor(
+    WPoolMem<SECURITY_DESCRIPTOR, PagedPool> event_security_descriptor(
         SECURITY_DESCRIPTOR_MIN_LENGTH);
 
     if (event_security_descriptor)
@@ -123,7 +123,7 @@ STATUS_SUCCESS if successful
 
     if (!NT_SUCCESS(status))
     {
-        DbgPrint("QCache:DriverEntry: Cannot create diff full event '%wZ': %#x\n",
+        DbgPrint("QCache:DriverEntry: Cannot create out-of-memory event '%wZ': %#x\n",
             event_obj_attrs.ObjectName, status);
 
         KdBreakPoint();
@@ -223,7 +223,7 @@ STATUS_SUCCESS if successful
     param_key_path.MaximumLength = RegistryPath->Length
         + sizeof(parameters_suffix);
 
-    WPagedPoolMem<WCHAR> param_key_buffer(param_key_path.MaximumLength);
+    WPoolMem<WCHAR, PagedPool> param_key_buffer(param_key_path.MaximumLength);
 
     if (!param_key_buffer)
     {
@@ -258,10 +258,13 @@ STATUS_SUCCESS if successful
     //
     // Create dispatch points
     //
+
     ULONG ulIndex;
     PDRIVER_DISPATCH *dispatch;
-    for (ulIndex = 0, dispatch = DriverObject->MajorFunction;
-        ulIndex <= IRP_MJ_MAXIMUM_FUNCTION; ulIndex++, dispatch++)
+    for (
+        ulIndex = 0, dispatch = DriverObject->MajorFunction;
+        ulIndex <= IRP_MJ_MAXIMUM_FUNCTION;
+        ulIndex++, dispatch++)
     {
         *dispatch = QCacheSendToNextDriver;
     }
@@ -273,6 +276,7 @@ STATUS_SUCCESS if successful
     DriverObject->MajorFunction[IRP_MJ_READ] = QCacheRead;
     DriverObject->MajorFunction[IRP_MJ_WRITE] = QCacheWrite;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = QCacheDeviceControl;
+    DriverObject->MajorFunction[IRP_MJ_INTERNAL_DEVICE_CONTROL] = QCacheDeviceControl;
 
     DriverObject->MajorFunction[IRP_MJ_SHUTDOWN] = QCacheShutdown;
 
@@ -288,8 +292,8 @@ STATUS_SUCCESS if successful
 
 }				// end DriverEntry()
 
-#define FILTER_DEVICE_PROPOGATE_FLAGS            0
-#define FILTER_DEVICE_PROPOGATE_CHARACTERISTICS (FILE_REMOVABLE_MEDIA |  \
+#define FILTER_DEVICE_PROPAGATE_FLAGS            0
+#define FILTER_DEVICE_PROPAGATE_CHARACTERISTICS (FILE_REMOVABLE_MEDIA |  \
                                                  FILE_READ_ONLY_DEVICE | \
                                                  FILE_FLOPPY_DISKETTE    \
                                                  )
@@ -303,15 +307,16 @@ IN PDEVICE_OBJECT TargetDevice)
     PAGED_CODE();
 
     //
-    // Propogate all useful flags from target to QCache. MountMgr will look
+    // Propagate all useful flags from target to QCache. MountMgr will look
     // at the QCache object capabilities to figure out if the disk is
     // a removable and perhaps other things.
     //
-    prop_flags = TargetDevice->Flags & FILTER_DEVICE_PROPOGATE_FLAGS;
+
+    prop_flags = TargetDevice->Flags & FILTER_DEVICE_PROPAGATE_FLAGS;
     FilterDevice->Flags |= prop_flags;
 
     prop_flags =
-        TargetDevice->Characteristics & FILTER_DEVICE_PROPOGATE_CHARACTERISTICS;
+        TargetDevice->Characteristics & FILTER_DEVICE_PROPAGATE_CHARACTERISTICS;
     FilterDevice->Characteristics |= prop_flags;
 }
 
@@ -445,7 +450,7 @@ OUT PIO_STATUS_BLOCK IoStatus)
 }
 
 NTSTATUS
-QCacheInitializeDiffDeviceUnsafe(IN PDEVICE_EXTENSION DeviceExtension)
+QCacheInitializeDeviceUnsafe(IN PDEVICE_EXTENSION DeviceExtension)
 {
     NTSTATUS status;
 
@@ -465,7 +470,7 @@ QCacheInitializeDiffDeviceUnsafe(IN PDEVICE_EXTENSION DeviceExtension)
 
         if (!NT_SUCCESS(status))
         {
-            KdPrint(("QCacheInitializeDiffDevice: Error querying volume size: %#x.\n",
+            KdPrint(("QCacheInitializeDevice: Error querying volume size: %#x.\n",
                 status));
 
             KdBreakPoint();
@@ -486,7 +491,7 @@ QCacheInitializeDiffDeviceUnsafe(IN PDEVICE_EXTENSION DeviceExtension)
 }
 
 NTSTATUS
-QCacheInitializeDiffDevice(IN PDEVICE_EXTENSION DeviceExtension)
+QCacheInitializeDevice(IN PDEVICE_EXTENSION DeviceExtension)
 {
     KeAcquireGuardedMutex(&DeviceExtension->InitializationMutex);
 
@@ -495,7 +500,7 @@ QCacheInitializeDiffDevice(IN PDEVICE_EXTENSION DeviceExtension)
 
     KeReleaseGuardedMutex(&DeviceExtension->InitializationMutex);
 
-    auto status = QCacheInitializeDiffDeviceUnsafe(DeviceExtension);
+    auto status = QCacheInitializeDeviceUnsafe(DeviceExtension);
 
     KeSetEvent(&DeviceExtension->InitializationEvent, 0, FALSE);
 
@@ -535,55 +540,59 @@ NTSTATUS
 
     NTSTATUS status;
 
+    ULONG req_length;
+
 #if DBG
     
-    //LONG bus_count = 0;
+    LONG bus_count = 0;
 
-    //WPoolMem<WCHAR> ph_obj_name(NonPagedPool, 65536);
-    //
-    //status = IoGetDeviceProperty(PhysicalDeviceObject,
-    //    DevicePropertyEnumeratorName, (ULONG)(ph_obj_name.GetSize() - 2),
-    //    ph_obj_name, &req_length);
+    WPoolMem<WCHAR, NonPagedPool> ph_obj_name(UNICODE_STRING_MAX_BYTES + 2);
+    
+    status = IoGetDeviceProperty(PhysicalDeviceObject,
+        DevicePropertyEnumeratorName, (ULONG)(ph_obj_name.GetSize() - 2),
+        ph_obj_name, &req_length);
 
-    //if (!NT_SUCCESS(status))
-    //{
-    //    DbgPrint("QCache:AddDevice Error getting enumerator name for device: %#x\n",
-    //        status);
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("QCache:AddDevice Error getting enumerator name for device: %#x\n",
+            status);
 
-    //    ph_obj_name[0] = 0;
-    //}
+        ph_obj_name[0] = 0;
+    }
 
-    //wcscat(ph_obj_name, L"\\");
+#pragma warning(suppress: 28719)
+    wcscat(ph_obj_name, L"\\");
 
-    //status = IoGetDeviceProperty(PhysicalDeviceObject,
-    //    DevicePropertyClassName, (ULONG)(ph_obj_name.GetSize() -
-    //    2 * (wcslen(ph_obj_name) + 2)),
-    //    (PWSTR)ph_obj_name + wcslen(ph_obj_name), &req_length);
+    status = IoGetDeviceProperty(PhysicalDeviceObject,
+        DevicePropertyClassName, (ULONG)(ph_obj_name.GetSize() -
+        2 * (wcslen(ph_obj_name) + 2)),
+        (PWSTR)ph_obj_name + wcslen(ph_obj_name), &req_length);
 
-    //if (!NT_SUCCESS(status))
-    //{
-    //    DbgPrint("QCache:AddDevice Error getting class name for '%ws' device: %#x\n",
-    //        ph_obj_name, status);
-    //}
+    if (!NT_SUCCESS(status))
+    {
+        DbgPrint("QCache:AddDevice Error getting class name for '%ws' device: %#x\n",
+            (PWSTR)ph_obj_name, status);
+    }
 
-    //auto max_chars = (ph_obj_name.GetSize() / 2 - (wcslen(ph_obj_name) + 2));
-    //
-    //auto i =
-    //    _snwprintf((PWSTR)ph_obj_name + wcslen(ph_obj_name),
-    //    max_chars,
-    //    L"\\%i", bus_count);
+    auto max_chars = (ph_obj_name.GetSize() / 2 - (wcslen(ph_obj_name) + 2));
+    
+#pragma warning(suppress: 28719)
+    auto i = _snwprintf(
+        (PWSTR)ph_obj_name + wcslen(ph_obj_name),
+        max_chars,
+        L"\\%i", bus_count);
 
-    //if ((i < 0) || ((ULONG)i >= max_chars))
-    //{
-    //    DbgPrint("QCache:AddDevice: Enumerator or class names are too long.\n");
-    //}
-    //else
-    //{
-    //    DbgPrint("QCache:AddDevice for Enum\\Class\\Number: '%ws'\n",
-    //        ph_obj_name);
-    //}
+    if ((i < 0) || ((ULONG)i >= max_chars))
+    {
+        DbgPrint("QCache:AddDevice: Enumerator or class names are too long.\n");
+    }
+    else
+    {
+        DbgPrint("QCache:AddDevice for Enum\\Class\\Number: '%ws'\n",
+            (PWSTR)ph_obj_name);
+    }
 
-    //ph_obj_name.Free();
+    ph_obj_name.Free();
 
     KdBreakPoint();
 
@@ -620,7 +629,7 @@ NTSTATUS
     device_extension->Statistics.Version = sizeof(DEVICE_STATISTICS);
 
     //
-    // Initialise the remove lock
+    // Initialize the remove lock
     //
     IoInitializeRemoveLock(&device_extension->RemoveLock, LOCK_TAG, 1, 0);
 
@@ -683,9 +692,7 @@ NTSTATUS
         return STATUS_SUCCESS;
     }
 
-    WNonPagedPoolMem<OBJECT_NAME_INFORMATION> obj_name_info(1024);
-    
-    ULONG req_length;
+    WPoolMem<OBJECT_NAME_INFORMATION, NonPagedPool> obj_name_info(1024);
     
     status = ObQueryNameString(PhysicalDeviceObject, obj_name_info,
         (ULONG)obj_name_info.GetSize(), &req_length);
@@ -696,7 +703,7 @@ NTSTATUS
             &obj_name_info->Name,
             &PhysicalDeviceObject->DriverObject->DriverName));
 
-        //QCacheInitializeDiffDevice(device_extension);
+        //QCacheInitializeDevice(device_extension);
     }
 
     KdPrint((
@@ -946,7 +953,7 @@ Status of processing the Start Irp
     if (device_extension->Statistics.IsCached &&
         (device_extension->Statistics.Size.QuadPart == 0))
     {
-        QCacheInitializeDiffDevice(device_extension);
+        QCacheInitializeDevice(device_extension);
     }
 
     //
@@ -1184,7 +1191,7 @@ QCacheCreate(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
             return STATUS_DEVICE_NOT_READY;
         }
 
-        auto status = QCacheInitializeDiffDevice(device_extension);
+        auto status = QCacheInitializeDevice(device_extension);
 
         if (!NT_SUCCESS(status))
         {

@@ -23,13 +23,19 @@ int
 stats(int argc, LPWSTR *argv);
 
 int
+ioctl(int argc, LPWSTR *argv, DWORD ioctl);
+
+int
 wmain(int argc, LPWSTR *argv)
 {
     if (argc < 2)
     {
         wcerr <<
-            "Example syntax:\n"
-            << argv[0] << " stat C:\n" << endl;
+            "Example syntax:\n" <<
+            argv[0] << " stat C:\n" <<
+            argv[0] << " flush C:\n" <<
+            argv[0] << " on C:\n" <<
+            argv[0] << " off C:" << endl;
 
         return -1;
     }
@@ -37,6 +43,18 @@ wmain(int argc, LPWSTR *argv)
     if (_wcsicmp(argv[1], L"stat") == 0)
     {
         return stats(argc - 1, argv + 1);
+    }
+    else if (_wcsicmp(argv[1], L"flush") == 0)
+    {
+        return ioctl(argc - 1, argv + 1, IOCTL_QCACHE_FLUSH);
+    }
+    else if (_wcsicmp(argv[1], L"off") == 0)
+    {
+        return ioctl(argc - 1, argv + 1, IOCTL_QCACHE_OFF);
+    }
+    else if (_wcsicmp(argv[1], L"on") == 0)
+    {
+        return ioctl(argc - 1, argv + 1, IOCTL_QCACHE_ON);
     }
     else
     {
@@ -48,7 +66,7 @@ wmain(int argc, LPWSTR *argv)
 int
 stats(int argc, LPWSTR *argv)
 {
-    WEvent low_mem_condition(L"Global\\" QCACHE_FULL_EVENT_NAME);
+    WEvent low_mem_condition(L"Global\\" QCACHE_OUT_OF_MEMORY_EVENT_NAME);
     if (!low_mem_condition)
     {
         win_perror(L"Error getting memory condition state");
@@ -189,6 +207,124 @@ stats(int argc, LPWSTR *argv)
         TO_h(stats->LargestWriteSize), TO_p(stats->LargestWriteSize),
         stats->LowMemQueued,
         stats->PagingPathCount);
+
+    return 0;
+}
+
+int
+ioctl(int argc, LPWSTR *argv, DWORD ioctl)
+{
+    WEvent low_mem_condition(L"Global\\" QCACHE_OUT_OF_MEMORY_EVENT_NAME);
+    if (!low_mem_condition)
+    {
+        win_perror(L"Error getting memory condition state");
+    }
+    else
+    {
+        switch (low_mem_condition.Wait(0))
+        {
+        case WAIT_OBJECT_0:
+            wcout << "Low memory condition." << endl;
+            break;
+
+        case WAIT_TIMEOUT:
+            wcout << "Normal memory condition." << endl;
+            break;
+
+        default:
+            wcout << "Unknown memory condition." << endl;
+        }
+
+        low_mem_condition.Close();
+    }
+
+    if (argc > 2)
+    {
+        wcerr << "Invalid command line parameters." << endl;
+        return -1;
+    }
+
+    if (argc < 2)
+    {
+        return 0;
+    }
+
+    wcout << endl;
+
+    wstring full_path;
+
+    if (argv[1][0] == L'\\')
+    {
+        full_path = argv[1];
+    }
+    else
+    {
+        full_path = L"\\\\?\\";
+        full_path += argv[1];
+    }
+
+    DWORD access = 0;
+    access |= ACCESS_FROM_CTL_CODE(ioctl) & FILE_READ_ACCESS ?
+        GENERIC_READ : 0;
+    access |= ACCESS_FROM_CTL_CODE(ioctl) & FILE_WRITE_ACCESS ?
+        GENERIC_WRITE : 0;
+
+    WFile device(full_path.c_str(), access,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+
+    if (!device)
+    {
+        win_perror(L"Error opening device");
+        wcerr << "Device full path: '" << full_path << "'" << endl;
+        return 1;
+    }
+
+    WOverlapped overlapped;
+
+    if (!overlapped)
+    {
+        win_perror(L"CreateEvent failed");
+        return 2;
+    }
+
+    cout << "Sending request to device..." << endl;
+
+    DWORD bytes;
+
+    if ((!DeviceIoControl(
+        device.Handle(),
+        ioctl,
+        NULL, 0,
+        NULL, 0,
+        &bytes, &overlapped)) &&
+        GetLastError() != ERROR_IO_PENDING)
+    {
+        win_perror(L"Error querying device");
+        wcerr << "Device full path: '" << full_path << "'" << endl;
+        return 1;
+    }
+
+    char wait_char = '/';
+
+    while (!overlapped.Wait(200))
+    {
+        printf("Request sent, waiting for completion... %c\r",
+            NextWaitChar(&wait_char));
+    }
+
+    printf("                                         \r");
+
+    if (overlapped.GetResult(device.Handle(), &bytes, TRUE))
+    {
+        puts("Completed successfully.");
+    }
+    else
+    {
+        win_perror(L"Device returned error");
+    }
+
+    device.Close();
 
     return 0;
 }

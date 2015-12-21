@@ -1,5 +1,13 @@
 #include "qcache.h"
 
+//
+// The device worker thread that carries out in background the
+// lazy-write requests pushed to the queue. Items do not
+// necessarily have an IRP associated with them. The original
+// IRP could have been already completed and gone and this thread
+// should just lazy-write out the actual operation in background.
+//
+
 void
 QCacheDeviceWorkerThread(PVOID Context)
 {
@@ -28,12 +36,12 @@ QCacheDeviceWorkerThread(PVOID Context)
             {
                 UNICODE_STRING event_path;
                 RtlInitUnicodeString(&event_path,
-                    L"\\Device\\" QCACHE_FULL_EVENT_NAME);
+                    L"\\Device\\" QCACHE_OUT_OF_MEMORY_EVENT_NAME);
 
                 UNICODE_STRING event_link;
                 RtlInitUnicodeString(&event_link,
                     L"\\BaseNamedObjects\\Global\\"
-                    QCACHE_FULL_EVENT_NAME);
+                    QCACHE_OUT_OF_MEMORY_EVENT_NAME);
 
                 auto status = IoCreateUnprotectedSymbolicLink(&event_link,
                     &event_path);
@@ -57,7 +65,7 @@ QCacheDeviceWorkerThread(PVOID Context)
 
         auto item = CONTAINING_RECORD(request, WRITE_QUEUE_ITEM, ListEntry);
 
-        QCacheDeferredIrp(device_extension, item);
+        QCacheDispatchQueuedItem(device_extension, item);
     }
 
     PsTerminateSystemThread(STATUS_SUCCESS);

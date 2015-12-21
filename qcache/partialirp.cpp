@@ -124,10 +124,12 @@ PIRP SCATTERED_IRP::BuildIrp(
     {
         InterlockedExchange(&LastFailedStatus,
             STATUS_INSUFFICIENT_RESOURCES);
+
         return NULL;
     }
 
     lower_irp->Tail.Overlay.Thread = OriginalIrp->Tail.Overlay.Thread;
+
     if (MajorFunction == IRP_MJ_WRITE)
     {
         lower_irp->Flags |= IRP_WRITE_OPERATION | SL_WRITE_THROUGH |
