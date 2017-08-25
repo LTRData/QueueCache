@@ -24,7 +24,11 @@ QCacheQueueIrp(
         if ((QCacheKernelHighNonPagedPoolCondition == NULL ||
             KeReadStateEvent(QCacheKernelHighNonPagedPoolCondition)) &&
             (QCacheKernelHighMemoryCondition == NULL ||
-                KeReadStateEvent(QCacheKernelHighMemoryCondition)))
+                KeReadStateEvent(QCacheKernelHighMemoryCondition)) &&
+            DeviceExtension->Statistics.WriteQueueSize <
+            DeviceExtension->Statistics.MaxQueueSize &&
+            DeviceExtension->Statistics.WriteQueueItems <
+            DeviceExtension->Statistics.MaxQueueItems)
         {
             KeResetEvent(QCacheLowMemCondition);
 

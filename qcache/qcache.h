@@ -34,6 +34,10 @@
 #include "qcstats.h"
 #include "wkmem.hpp"
 
+#ifndef _NT_TARGET_VERSION
+#define _NT_TARGET_VERSION (NTDDI_VERSION >> 16)
+#endif
+
 #ifdef _WIN64
 #define InterlockedAddPtr InterlockedAdd64
 #else
@@ -338,6 +342,13 @@ extern "C"
 
     DRIVER_ADD_DEVICE QCacheAddDevice;
 
+    NTSTATUS
+        QCacheAttachDevice(
+            IN PDRIVER_OBJECT DriverObject,
+            IN PDEVICE_OBJECT PhysicalDeviceObject,
+            OUT PDEVICE_EXTENSION *FilterDeviceExtension
+            );
+
     DRIVER_DISPATCH QCacheForwardIrpSynchronous;
 
     _Dispatch_type_(IRP_MJ_PNP) DRIVER_DISPATCH QCachePnp;
@@ -378,6 +389,11 @@ extern "C"
     DRIVER_UNLOAD QCacheUnload;
 
     KSTART_ROUTINE QCacheDeviceWorkerThread;
+
+    NTSTATUS
+        QCacheAttachLegacyDevice(
+            PDRIVER_OBJECT DriverObject,
+            PUNICODE_STRING DeviceName);
 
     VOID
         QCacheDispatchQueuedItem(
@@ -440,6 +456,10 @@ extern "C"
     extern PKEVENT QCacheKernelHighNonPagedPoolCondition;
     extern PDRIVER_OBJECT QCacheDriverObject;
     extern bool QCacheLinksCreated;
+    extern LONGLONG QCacheMaxQueueItems;
+    extern LONGLONG QCacheMaxQueueSize;
+
+#if _NT_TARGET_VERSION >= 0x501
 
     FORCEINLINE
         VOID
@@ -485,6 +505,8 @@ extern "C"
             *LowestAssumedIrql = LockHandle->OldIrql;
         }
     }
+
+#endif >= XP
 
     FORCEINLINE
         VOID

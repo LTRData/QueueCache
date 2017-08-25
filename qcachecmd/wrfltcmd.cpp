@@ -184,7 +184,10 @@ stats(int argc, LPWSTR *argv)
         "Largest write size:              %.4g %s\n"
         "Queued under low-mem condition:  %I64i\n"
         "\n"
-        "Page files on filtered device:   %i\n",
+        "Page files on filtered device:   %i\n"
+        "\n"
+        "Max queue items:                 %I64i\n"
+        "Max queue size:                  %.4g %s\n",
         stats->IsCached ? "Yes" : "No",
         stats->LastErrorCode,
         TO_h(stats->Size.QuadPart), TO_p(stats->Size.QuadPart),
@@ -206,7 +209,9 @@ stats(int argc, LPWSTR *argv)
         TO_h(stats->ReadBytesFromOriginal), TO_p(stats->ReadBytesFromOriginal),
         TO_h(stats->LargestWriteSize), TO_p(stats->LargestWriteSize),
         stats->LowMemQueued,
-        stats->PagingPathCount);
+        stats->PagingPathCount,
+        stats->MaxQueueItems,
+        TO_h(stats->MaxQueueSize), TO_p(stats->MaxQueueSize));
 
     return 0;
 }

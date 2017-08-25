@@ -30,6 +30,16 @@ typedef LONG NTSTATUS, *PNTSTATUS;
 
 #define QCACHE_OUT_OF_MEMORY_EVENT_PATH L"Global\\" QCACHE_OUT_OF_MEMORY_EVENT_NAME
 
+#define QCACHE_MAX_QUEUE_ITEMS_VALUE_NAME       L"MaxQueueItems"
+
+#define QCACHE_MAX_QUEUE_SIZE_VALUE_NAME        L"MaxQueueSize"
+
+#define QCACHE_ATTACH_DEVICES_VALUE_NAME        L"AttachDevices"
+
+#define QCACHE_MAX_QUEUE_ITEMS_DEFAULT_VALUE    ((LONGLONG)10000)
+
+#define QCACHE_MAX_QUEUE_SIZE_DEFAULT_VALUE     ((LONGLONG)500 << 20)
+
 //
 // Driver name and file path
 //
@@ -169,6 +179,10 @@ typedef struct _DEVICE_STATISTICS
     //
     //
     LONGLONG LowMemQueued;
+
+    LONGLONG MaxQueueItems;
+
+    LONGLONG MaxQueueSize;
 
 } DEVICE_STATISTICS, *PDEVICE_STATISTICS;
 
