@@ -46,3 +46,5 @@ Keep experimental-status warnings in place as individual issues are fixed. Use s
 QueueCache uses the [MIT License](LICENSE), with explicit **MS-LPL exceptions** for six files containing Microsoft DiskPerf or CLASSPNP sample material. Each exception applies to the entire listed file, including its QueueCache modifications. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the file list and required notices, and [LICENSES/MS-LPL.txt](LICENSES/MS-LPL.txt) for the full exception license.
 
 The original credit to Mayur Thigale's LoopBack Filter Driver is retained as an acknowledgment of early boilerplate/inspiration. The experimental status and data-loss warnings remain applicable regardless of the license.
+
+See [Licensing and provenance](docs/LICENSING_REVIEW.md) for source comparisons and the basis for the exceptions.
