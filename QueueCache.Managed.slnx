@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/QueueCache.Management/QueueCache.Management.csproj" />
+    <Project Path="src/QueueCache.Operations/QueueCache.Operations.csproj" />
+    <Project Path="src/QueueCache.Desktop/QueueCache.Desktop.csproj" />
+    <Project Path="src/QueueCache.Cli/QueueCache.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/QueueCache.Management.Tests/QueueCache.Management.Tests.csproj" />
+    <Project Path="tests/QueueCache.LabTests/QueueCache.LabTests.csproj" />
+    <Project Path="tests/QueueCache.WriteTests/QueueCache.WriteTests.csproj" />
+    <Project Path="tests/QueueCache.FileTests/QueueCache.FileTests.csproj" />
+  </Folder>
+</Solution>

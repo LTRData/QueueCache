@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><AssemblyName>qcache</AssemblyName></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../QueueCache.Management/QueueCache.Management.csproj" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../QueueCache.Operations/QueueCache.Operations.csproj" />
+    <PackageReference Include="System.CommandLine" Version="2.0.12" />
+  </ItemGroup>
+</Project>

@@ -8,12 +8,12 @@ The full license is included in [LICENSES/MS-LPL.txt](LICENSES/MS-LPL.txt). Pres
 
 | File | Origin | Upstream copyright notice |
 | --- | --- | --- |
-| [qcache/mainwdm.cpp](qcache/mainwdm.cpp) | Adapted DiskPerf lifecycle, attachment, and request-forwarding code. | Copyright (C) Microsoft Corporation, 1991 - 1999 |
-| [qcache/qcache.h](qcache/qcache.h) | Mixed QueueCache declarations and device-extension declarations/comments corresponding to DiskPerf. | Copyright (C) Microsoft Corporation, 1991 - 1999 |
-| [scsichk/scsichk.c](scsichk/scsichk.c) | Modified DiskPerf driver. | Copyright (C) Microsoft Corporation, 1991 - 1999 |
-| [scsichk/scsichk.inf](scsichk/scsichk.inf) | Modified DiskPerf installation file. | Copyright (c) Microsoft Corporation |
-| [scsichk/scsichk.rc](scsichk/scsichk.rc) | Modified DiskPerf resource file. | Copyright (C) Microsoft Corporation, 1992 - 1999 |
-| [scsilog/debug.cpp](scsilog/debug.cpp) | Adapted CLASSPNP SCSI/SRB/sense diagnostic string helpers. | Copyright (C) Microsoft Corporation, 1991 - 2010 |
+| [driver/qcache/mainwdm.cpp](driver/qcache/mainwdm.cpp) | Adapted DiskPerf lifecycle, attachment, and request-forwarding code. | Copyright (C) Microsoft Corporation, 1991 - 1999 |
+| [driver/qcache/qcache.h](driver/qcache/qcache.h) | Mixed QueueCache declarations and device-extension declarations/comments corresponding to DiskPerf. | Copyright (C) Microsoft Corporation, 1991 - 1999 |
+| [legacy/scsichk/scsichk.c](legacy/scsichk/scsichk.c) | Modified DiskPerf driver. | Copyright (C) Microsoft Corporation, 1991 - 1999 |
+| [legacy/scsichk/scsichk.inf](legacy/scsichk/scsichk.inf) | Modified DiskPerf installation file. | Copyright (c) Microsoft Corporation |
+| [legacy/scsichk/scsichk.rc](legacy/scsichk/scsichk.rc) | Modified DiskPerf resource file. | Copyright (C) Microsoft Corporation, 1992 - 1999 |
+| [legacy/scsilog/debug.cpp](legacy/scsilog/debug.cpp) | Adapted CLASSPNP SCSI/SRB/sense diagnostic string helpers. | Copyright (C) Microsoft Corporation, 1991 - 2010 |
 
 An entry applies whenever that file is present in the checked-out revision. Whole-file exceptions avoid an uncertain line-by-line licensing split in mixed source files. They do not attribute the independently developed QueueCache cache implementation to Microsoft.
 
@@ -21,7 +21,7 @@ The licensing basis is the specific **MS-LPL** declaration in the official archi
 
 ## LoopBack acknowledgment
 
-The original acknowledgment of Mayur Thigale's LoopBack Filter Driver remains in `qcache/qcache.h`. The maintainer identifies it as early boilerplate/inspiration. Comparison with a preserved copy found ordinary driver API patterns and substantially different QueueCache implementations, including independently developed caching behavior. This acknowledgment is retained without asserting that the LoopBack example itself has been relicensed under MIT or MS-LPL.
+The original acknowledgment of Mayur Thigale's LoopBack Filter Driver remains in `driver/qcache/qcache.h`. The maintainer identifies it as early boilerplate/inspiration. Comparison with a preserved copy found ordinary driver API patterns and substantially different QueueCache implementations, including independently developed caching behavior. This acknowledgment is retained without asserting that the LoopBack example itself has been relicensed under MIT or MS-LPL.
 
 ## History and external dependencies
 

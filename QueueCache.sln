@@ -3,13 +3,13 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.28307.136
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "qcache", "qcache\qcache.vcxproj", "{1082835A-1459-4D64-A2C4-E58A2F1F4537}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "qcache", "driver\qcache\qcache.vcxproj", "{1082835A-1459-4D64-A2C4-E58A2F1F4537}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "qcachecmd", "qcachecmd\qcachecmd.vcxproj", "{C2F36DFF-583B-469B-9AF9-EAABB8B578C8}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "qcachecmd", "legacy\qcachecmd\qcachecmd.vcxproj", "{C2F36DFF-583B-469B-9AF9-EAABB8B578C8}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "scsichk", "scsichk\scsichk.vcxproj", "{D39C1884-72B0-44EE-A37A-70F77B452237}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "scsichk", "legacy\scsichk\scsichk.vcxproj", "{D39C1884-72B0-44EE-A37A-70F77B452237}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "scsilog", "scsilog\scsilog.vcxproj", "{1987FD8F-C830-4AC5-9150-56F78A9A6129}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "scsilog", "legacy\scsilog\scsilog.vcxproj", "{1987FD8F-C830-4AC5-9150-56F78A9A6129}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

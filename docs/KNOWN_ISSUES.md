@@ -1,5 +1,7 @@
 # Known issues and contributor work
 
+These findings describe the **historical engine** preserved under `driver/qcache/`, not the replacement opt-in `lab-writecache` engine. See the root README for the new engine's contracts and remaining validation limits. Moving source paths does not mean these legacy defects were repaired.
+
 **QueueCache is experimental and can lose acknowledged writes or corrupt a filesystem.** This document is a starting point for investigation, not a claim that the driver is otherwise correct.
 
 Review basis: the original source snapshots from 2015-2026, inspected on 2026-09-07. Runtime code is unchanged by the publication cleanup; source links account for restored attribution headers. The review covered the five reachable commits and their file versions. The findings below describe the current source. No driver build, installation, Driver Verifier run, or runtime reproduction was performed for this documentation pass.
@@ -10,9 +12,9 @@ Review basis: the original source snapshots from 2015-2026, inspected on 2026-09
 
 **Confirmed in source; highest priority.**
 
-[QCacheQueueIrp](../qcache/queue.cpp#L14) admits both writes and `IRP_MJ_FLUSH_BUFFERS` to the lazy queue. [QCacheQueueLazyWriteIrp](../qcache/queue.cpp#L127) completes the original request successfully after queue insertion. It does not exclude incoming writes marked `SL_WRITE_THROUGH`. The worker later sets write-through on its replacement write, which does not repair the original request's early completion.
+[QCacheQueueIrp](../driver/qcache/queue.cpp#L14) admits both writes and `IRP_MJ_FLUSH_BUFFERS` to the lazy queue. [QCacheQueueLazyWriteIrp](../driver/qcache/queue.cpp#L127) completes the original request successfully after queue insertion. It does not exclude incoming writes marked `SL_WRITE_THROUGH`. The worker later sets write-through on its replacement write, which does not repair the original request's early completion.
 
-The private `IOCTL_QCACHE_FLUSH` and `IOCTL_QCACHE_OFF` requests are completed as successful queue markers in [QCacheDispatchQueuedItem](../qcache/queue.cpp#L269); they do not issue a lower-device flush. They also cannot report earlier background-write failures described in QC-02.
+The private `IOCTL_QCACHE_FLUSH` and `IOCTL_QCACHE_OFF` requests are completed as successful queue markers in [QCacheDispatchQueuedItem](../driver/qcache/queue.cpp#L269); they do not issue a lower-device flush. They also cannot report earlier background-write failures described in QC-02.
 
 A filesystem or application can therefore observe success while its data is still volatile. Microsoft's [flush IRP contract](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/irp-mj-flush-buffers) requires transfer of cached data before completion; the [write-through flag](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ns-wdm-_io_stack_location) expresses a request to reach persistent storage.
 
@@ -24,7 +26,7 @@ A filesystem or application can therefore observe success while its data is stil
 
 **Confirmed in source; highest priority.**
 
-[QCacheDispatchQueuedItem](../qcache/queue.cpp#L290) builds a replacement request and waits if it is pending, but does not examine its final status or transferred byte count before removing the queue entry and freeing the cached buffer. `LastErrorCode` is updated when IRP construction fails, not when a lazy lower-device write or flush fails. The original caller has already received success.
+[QCacheDispatchQueuedItem](../driver/qcache/queue.cpp#L290) builds a replacement request and waits if it is pending, but does not examine its final status or transferred byte count before removing the queue entry and freeing the cached buffer. `LastErrorCode` is updated when IRP construction fails, not when a lazy lower-device write or flush fails. The original caller has already received success.
 
 This loses the dirty copy after a failed or short write and can make later statistics or control requests appear successful. The `IO_STATUS_BLOCK` supplied to the builder is also declared inside a block that ends before the subsequent call and wait; its lifetime needs to encompass completion. Microsoft documents that the [builder's status block receives the final lower-driver result](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-iobuildsynchronousfsdrequest).
 
@@ -36,13 +38,13 @@ This loses the dirty copy after a failed or short write and can make later stati
 
 **Existing partial handling; design/validation gap with visible admission races.**
 
-[QCacheShutdown](../qcache/write.cpp#L67) does exist: it clears `IsCached` and queues the shutdown IRP. [QCacheRemoveDevice](../qcache/mainwdm.cpp#L1171) asks the worker to drain and exit, then sends a lower flush. These paths are not evidence of a reliable shutdown guarantee.
+[QCacheShutdown](../driver/qcache/write.cpp#L67) does exist: it clears `IsCached` and queues the shutdown IRP. [QCacheRemoveDevice](../driver/qcache/mainwdm.cpp#L1171) asks the worker to drain and exit, then sends a lower flush. These paths are not evidence of a reliable shutdown guarantee.
 
 The source registers a shutdown dispatch function but makes no shutdown-notification registration call. Delivery through the supported attachment stacks therefore needs to be established; absence of local registration alone does not prove that an upper driver never forwards shutdown. Microsoft says [only one driver per device stack should register](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-ioregistershutdownnotification), so adding registration blindly is not a complete fix.
 
-[Dispatch setup](../qcache/mainwdm.cpp#L322) forwards power requests through the default handler. [Usage notifications](../qcache/mainwdm.cpp#L1242) adjust paging-path counts and power flags without defining a cache policy for paging, hibernation, or dump devices.
+[Dispatch setup](../driver/qcache/mainwdm.cpp#L322) forwards power requests through the default handler. [Usage notifications](../driver/qcache/mainwdm.cpp#L1242) adjust paging-path counts and power flags without defining a cache policy for paging, hibernation, or dump devices.
 
-Clearing `IsCached` does not prevent new queue entries: [QCacheQueueIrp](../qcache/queue.cpp#L20) reads it before allocation and queue locking, and the non-lazy path still enqueues work. An already-admitted lazy write can be inserted after an off/shutdown marker. Removal stops the worker before [IoReleaseRemoveLockAndWait](../qcache/mainwdm.cpp#L1228) closes admission through the remove lock, leaving an interval in which new work can be stranded.
+Clearing `IsCached` does not prevent new queue entries: [QCacheQueueIrp](../driver/qcache/queue.cpp#L20) reads it before allocation and queue locking, and the non-lazy path still enqueues work. An already-admitted lazy write can be inserted after an off/shutdown marker. Removal stops the worker before [IoReleaseRemoveLockAndWait](../driver/qcache/mainwdm.cpp#L1228) closes admission through the remove lock, leaving an interval in which new work can be stranded.
 
 **Suggested work:** Define admission, draining, failure, and stopped states; serialize state changes with enqueueing; establish shutdown delivery and supported power/PnP transitions; preserve lower-stack availability until required I/O completes. Account for the unbounded waits and allocation dependencies in QC-04.
 
@@ -52,11 +54,11 @@ Clearing `IsCached` does not prevent new queue entries: [QCacheQueueIrp](../qcac
 
 **Confirmed mechanisms; resource policy remains incomplete.**
 
-[Queue admission](../qcache/queue.cpp#L24) checks the existing byte/item counters before reserving space, outside the queue lock. It does not include the incoming allocation size in the check. Large requests and concurrent writers can overshoot the configured limits. When the check rejects lazy completion, the fallback still allocates and queues a `WRITE_QUEUE_ITEM`; it does not impose a hard bound on all outstanding entries or their retained original IRPs/MDLs.
+[Queue admission](../driver/qcache/queue.cpp#L24) checks the existing byte/item counters before reserving space, outside the queue lock. It does not include the incoming allocation size in the check. Large requests and concurrent writers can overshoot the configured limits. When the check rejects lazy completion, the fallback still allocates and queues a `WRITE_QUEUE_ITEM`; it does not impose a hard bound on all outstanding entries or their retained original IRPs/MDLs.
 
-The defaults in [qcstats.h](../qcache/qcstats.h#L39) are 10,000 items and 500 MiB per filtered device. Cached payloads use [nonpaged-pool allocation](../qcache/wkmem.hpp#L3). These are configured thresholds, not proven safe system-wide budgets.
+The defaults in [qcstats.h](../driver/qcache/qcstats.h#L39) are 10,000 items and 500 MiB per filtered device. Cached payloads use [nonpaged-pool allocation](../driver/qcache/wkmem.hpp#L3). These are configured thresholds, not proven safe system-wide budgets.
 
-The worker allocates the lower IRP after acknowledging a cached write. If [IoBuildSynchronousFsdRequest fails](../qcache/queue.cpp#L306), it leaves the dirty entry at the queue head and returns. The [worker loop](../qcache/thread.cpp#L66) immediately retries it, with no backoff or reserved resources. Persistent allocation failure can spin without draining the queue; a lower request that never completes can also block the worker and shutdown indefinitely.
+The worker allocates the lower IRP after acknowledging a cached write. If [IoBuildSynchronousFsdRequest fails](../driver/qcache/queue.cpp#L306), it leaves the dirty entry at the queue head and returns. The [worker loop](../driver/qcache/thread.cpp#L66) immediately retries it, with no backoff or reserved resources. Persistent allocation failure can spin without draining the queue; a lower request that never completes can also block the worker and shutdown indefinitely.
 
 **Suggested work:** Reserve capacity atomically, include the full request cost, bound the fallback, consider aggregate usage across devices, and design an allocation-failure strategy that can still make progress. Define behavior for a stalled lower device without discarding acknowledged data.
 
@@ -66,9 +68,9 @@ The worker allocates the lower IRP after acknowledging a cached write. If [IoBui
 
 **Confirmed in source; useful bounded starting points.**
 
-In [QCacheQueueLazyWriteIrp](../qcache/queue.cpp#L147), a remove lock is acquired before mapping the source MDL and allocating the payload. If MDL mapping fails, the function returns without deleting the item or releasing that lock. If payload allocation fails, it deletes the item but still does not release the lock. The [item destructor](../qcache/qcache.h#L182) frees only the buffer. The leaked lock can prevent device removal from completing.
+In [QCacheQueueLazyWriteIrp](../driver/qcache/queue.cpp#L147), a remove lock is acquired before mapping the source MDL and allocating the payload. If MDL mapping fails, the function returns without deleting the item or releasing that lock. If payload allocation fails, it deletes the item but still does not release the lock. The [item destructor](../driver/qcache/qcache.h#L182) frees only the buffer. The leaked lock can prevent device removal from completing.
 
-[DriverEntry](../qcache/mainwdm.cpp#L120) can continue after creating or referencing `QCacheLowMemCondition` fails. [Queue admission](../qcache/queue.cpp#L33) then passes that potentially null pointer to `KeResetEvent` or `KeSetEvent`. Missing high-memory condition objects, by contrast, are treated as permission to cache.
+[DriverEntry](../driver/qcache/mainwdm.cpp#L120) can continue after creating or referencing `QCacheLowMemCondition` fails. [Queue admission](../driver/qcache/queue.cpp#L33) then passes that potentially null pointer to `KeResetEvent` or `KeSetEvent`. Missing high-memory condition objects, by contrast, are treated as permission to cache.
 
 **Suggested work:** Balance each successful acquisition on every failure exit. Establish whether essential event creation must fail initialization, and define a conservative policy when memory-condition information is unavailable.
 
@@ -78,7 +80,7 @@ In [QCacheQueueLazyWriteIrp](../qcache/queue.cpp#L147), a remove lock is acquire
 
 **Confirmed in source; useful bounded starting point.**
 
-[QCacheRead](../qcache/read.cpp#L114) copies overlapping dirty ranges directly into the caller's buffer, then uses `SCATTERED_IRP` to read uncovered ranges. [The scatter completion routine](../qcache/partialirp.cpp#L164) adds only lower-read bytes to `BytesCompleted`; the [scatter destructor](../qcache/qcache.h#L240) reports that value to the original caller. Cached bytes are never added to this completion count.
+[QCacheRead](../driver/qcache/read.cpp#L114) copies overlapping dirty ranges directly into the caller's buffer, then uses `SCATTERED_IRP` to read uncovered ranges. [The scatter completion routine](../driver/qcache/partialirp.cpp#L164) adds only lower-read bytes to `BytesCompleted`; the [scatter destructor](../driver/qcache/qcache.h#L240) reports that value to the original caller. Cached bytes are never added to this completion count.
 
 For example, an otherwise successful 1,024-byte read with 512 bytes satisfied from cache and 512 from disk reports 512 bytes, despite filling both ranges. Fully cached reads take a different completion path and do not demonstrate this defect.
 
@@ -90,9 +92,9 @@ For example, an otherwise successful 1,024-byte read with 512 bytes satisfied fr
 
 **Confirmed in source.**
 
-[QCacheAttachDevice](../qcache/mainwdm.cpp#L732) returns success when a device is skipped as read-only or when device creation fails, without returning a valid extension. Other failure paths return success after deleting the extension. [QCacheAttachLegacyDevice](../qcache/mainwdm.cpp#L451) treats success as proof that the output is valid and calls initialization with it. This can use an uninitialized or freed pointer.
+[QCacheAttachDevice](../driver/qcache/mainwdm.cpp#L732) returns success when a device is skipped as read-only or when device creation fails, without returning a valid extension. Other failure paths return success after deleting the extension. [QCacheAttachLegacyDevice](../driver/qcache/mainwdm.cpp#L451) treats success as proof that the output is valid and calls initialization with it. This can use an uninitialized or freed pointer.
 
-The [AttachDevices registry parser](../qcache/mainwdm.cpp#L378) also does not validate the value type or require termination within the supplied length. If `wcsnlen` reaches the end of an unterminated buffer, subtracting the string length plus a terminator from the unsigned remaining length can wrap and continue outside the buffer.
+The [AttachDevices registry parser](../driver/qcache/mainwdm.cpp#L378) also does not validate the value type or require termination within the supplied length. If `wcsnlen` reaches the end of an unterminated buffer, subtracting the string length plus a terminator from the unsigned remaining length can wrap and continue outside the buffer.
 
 **Suggested work:** Return distinct skipped/failed/successful outcomes with valid output ownership; handle initialization failures and unwind already attached legacy devices. Validate registry types, lengths, and terminators before traversing the list.
 
@@ -102,11 +104,11 @@ The [AttachDevices registry parser](../qcache/mainwdm.cpp#L378) also does not va
 
 **Design/validation gaps; these are not all demonstrated corruption bugs.**
 
-- [Reads](../qcache/read.cpp#L44) assume 512-byte granularity in alignment checks and bitmap ranges. [Writes](../qcache/write.cpp#L25) do not perform the same alignment checks. Establish supported logical-sector sizes, check negative/overflowing offsets, and test sector-aligned splitting on 512-byte and 4 KiB devices.
-- [Read cache lookup](../qcache/read.cpp#L114) scans the whole write queue and copies data while holding a spin lock. Measure lock hold times and contention with large writes and long queues before treating the cache as a general performance improvement.
-- [Control dispatch](../qcache/ioctl.cpp#L65) decides whether most IOCTLs should be queued from their access bits. Access requirements do not define storage-ordering semantics. Audit TRIM/deallocation, pass-through commands, and other media-changing requests against dirty data.
+- [Reads](../driver/qcache/read.cpp#L44) assume 512-byte granularity in alignment checks and bitmap ranges. [Writes](../driver/qcache/write.cpp#L25) do not perform the same alignment checks. Establish supported logical-sector sizes, check negative/overflowing offsets, and test sector-aligned splitting on 512-byte and 4 KiB devices.
+- [Read cache lookup](../driver/qcache/read.cpp#L114) scans the whole write queue and copies data while holding a spin lock. Measure lock hold times and contention with large writes and long queues before treating the cache as a general performance improvement.
+- [Control dispatch](../driver/qcache/ioctl.cpp#L65) decides whether most IOCTLs should be queued from their access bits. Access requirements do not define storage-ordering semantics. Audit TRIM/deallocation, pass-through commands, and other media-changing requests against dirty data.
 - Queued original IRPs have no explicit cancellation handling. Establish ownership, cancellation, and remove-lock coverage for every dispatch path and ensure cancellation cannot race completion or teardown.
-- [Statistics](../qcache/ioctl.cpp#L35) are copied while writers update them through different synchronization paths. Treat them as approximate diagnostics until a coherent snapshot contract exists.
+- [Statistics](../driver/qcache/ioctl.cpp#L35) are copied while writers update them through different synchronization paths. Treat them as approximate diagnostics until a coherent snapshot contract exists.
 
 **Validate:** Use narrowly scoped tests for each contract, including cancellation/completion races, conflicting media operations, sector-size coverage, and Driver Verifier checks.
 
@@ -114,9 +116,9 @@ The [AttachDevices registry parser](../qcache/mainwdm.cpp#L378) also does not va
 
 **Confirmed repository gaps; no fresh build was attempted in this review.**
 
-[qcache.vcxproj](../qcache/qcache.vcxproj) and [qcachecmd.vcxproj](../qcachecmd/qcachecmd.vcxproj) use WDK 8.1 toolsets. The command project imports an absent `PropertySheet.props` and includes helper headers not supplied here. [scsilog.vcxproj](../scsilog/scsilog.vcxproj) uses v141 and references a sibling `LTRLib40.dll`; [scsichk.vcxproj](../scsichk/scsichk.vcxproj) uses the Windows 10 driver toolset. The only committed INF installs the separate SCSI logger.
+[qcache.vcxproj](../driver/qcache/qcache.vcxproj) and [qcachecmd.vcxproj](../qcachecmd/qcachecmd.vcxproj) use WDK 8.1 toolsets. The command project imports an absent `PropertySheet.props` and includes helper headers not supplied here. [scsilog.vcxproj](../legacy/scsilog/scsilog.vcxproj) uses v141 and references a sibling `LTRLib40.dll`; [scsichk.vcxproj](../legacy/scsichk/scsichk.vcxproj) uses the Windows 10 driver toolset. The only committed INF installs the separate SCSI logger.
 
-[scsilog/debug.cpp](../scsilog/debug.cpp#L21) places the formatting-function definitions under `_DEBUG`, while the reader calls them unconditionally. That is a source-visible Release-link concern to verify when restoring the build.
+[legacy/scsilog/debug.cpp](../legacy/scsilog/debug.cpp#L21) places the formatting-function definitions under `_DEBUG`, while the reader calls them unconditionally. That is a source-visible Release-link concern to verify when restoring the build.
 
 **Suggested work:** Document or replace missing dependencies, establish an explicit supported build matrix, and provide a reproducible driver/control-tool build. Add an instrumented lower-device test harness with controllable failures and completion delays. Keep installation and recovery instructions restricted to disposable test systems.
 
@@ -126,9 +128,9 @@ The [AttachDevices registry parser](../qcache/mainwdm.cpp#L378) also does not va
 
 **Confirmed source behavior; auxiliary tools, not cache protection.**
 
-[ScsiChkIoCompletion](../scsichk/scsichk.c#L1584) allocates log records from nonpaged pool, relies on an assertion before dereferencing the allocation, and copies transfer payloads into records. Records accumulate in memory until [device removal writes them](../scsichk/scsichk.c#L925) to `\SystemRoot\scsichk.log`. There is no visible log-size budget. The on-disk format also serializes a native [LOGDATA structure](../scsichk/scsichk.h), including its `Next` pointer and architecture-dependent layout.
+[ScsiChkIoCompletion](../legacy/scsichk/scsichk.c#L1584) allocates log records from nonpaged pool, relies on an assertion before dereferencing the allocation, and copies transfer payloads into records. Records accumulate in memory until [device removal writes them](../legacy/scsichk/scsichk.c#L925) to `\SystemRoot\scsichk.log`. There is no visible log-size budget. The on-disk format also serializes a native [LOGDATA structure](../legacy/scsichk/scsichk.h), including its `Next` pointer and architecture-dependent layout.
 
-[The log reader](../scsilog/scsilog.cpp#L55) checks that a record header fits, but trusts `DataLength` when reading the payload and advancing. A truncated or malformed record can cause reads outside the mapped file.
+[The log reader](../legacy/scsilog/scsilog.cpp#L55) checks that a record header fits, but trusts `DataLength` when reading the payload and advancing. A truncated or malformed record can cause reads outside the mapped file.
 
 **Suggested work:** Bound logging, handle allocation failure, establish a stable pointer-free file format, validate payload lengths, and make payload capture explicit. Use synthetic data in shared diagnostics.
 

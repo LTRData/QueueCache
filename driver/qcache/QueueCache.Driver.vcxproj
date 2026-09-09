@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{831319F5-4467-4584-BB5C-661B7148BED4}</ProjectGuid>
+    <RootNamespace>qcache</RootNamespace>
+    <LabPassThrough Condition="'$(LabWriteCache)'=='true'">true</LabPassThrough>
+    <LabSerialized Condition="'$(LabWriteCache)'=='true'">true</LabSerialized>
+    <LabPassThrough Condition="'$(LabPassThrough)'==''">false</LabPassThrough>
+    <LabSerialized Condition="'$(LabSerialized)'==''">false</LabSerialized>
+    <BuildFlavor Condition="'$(LabPassThrough)'=='true'">lab</BuildFlavor>
+    <BuildFlavor Condition="'$(LabPassThrough)'!='true'">legacy</BuildFlavor>
+    <BuildFlavor Condition="'$(LabPassThrough)'=='true' and '$(LabSerialized)'=='true'">lab-serialized</BuildFlavor>
+    <BuildFlavor Condition="'$(LabWriteCache)'=='true'">lab-writecache</BuildFlavor>
+    <Configuration Condition="'$(Configuration)'==''">Debug</Configuration>
+    <Platform Condition="'$(Platform)'==''">x64</Platform>
+    <WindowsTargetPlatformVersion>10.0.28000.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>WDM</DriverType>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <TargetVersion>Windows10</TargetVersion>
+    <DriverTargetPlatform>Desktop</DriverTargetPlatform>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(MSBuildProjectDirectory)\..\..\artifacts\driver\$(BuildFlavor)\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildProjectDirectory)\..\..\artifacts\obj\driver\$(BuildFlavor)\$(Configuration)\</IntDir>
+    <TargetName>qcache</TargetName>
+    <TargetName Condition="'$(LabPassThrough)'=='true'">qcachelab</TargetName>
+    <DriverDescription>QueueCache experimental storage filter</DriverDescription>
+    <DriverDescription Condition="'$(LabPassThrough)'=='true'">QueueCache pass-through lab harness (NO CACHING)</DriverDescription>
+    <DriverDescription Condition="'$(LabWriteCache)'=='true'">QueueCache experimental RAM write cache (LAB ONLY)</DriverDescription>
+    <SignMode>Off</SignMode>
+    <EnableInf2Cat>false</EnableInf2Cat>
+    <DebuggerFlavor>DbgengKernelDebugger</DebuggerFlavor>
+    <BuildVersion Condition="'$(BuildVersion)'==''">0.1.0.0</BuildVersion>
+    <BuildVersionNumeric>$([System.String]::Copy('$(BuildVersion)').Replace('.', ','))</BuildVersionNumeric>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <ExceptionHandling>false</ExceptionHandling>
+      <RuntimeTypeInfo>false</RuntimeTypeInfo>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <PreprocessorDefinitions>POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(LabSerialized)'=='true'">QCACHE_SERIALIZED_LAB=1;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(LabWriteCache)'=='true'">QCACHE_WRITE_LAB=1;QCACHE_SERIALIZED_LAB=1;POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link><GenerateDebugInformation>true</GenerateDebugInformation></Link>
+  </ItemDefinitionGroup>
+  <ItemGroup Condition="'$(LabPassThrough)'!='true'">
+    <ClCompile Include="ioctl.cpp" /><ClCompile Include="mainwdm.cpp" />
+    <ClCompile Include="partialirp.cpp" /><ClCompile Include="queue.cpp" />
+    <ClCompile Include="read.cpp" /><ClCompile Include="thread.cpp" /><ClCompile Include="write.cpp" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(LabPassThrough)'=='true'">
+    <ClCompile Include="lab.cpp" />
+    <ClCompile Include="writecache.cpp" Condition="'$(LabWriteCache)'=='true'" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="abi-check.cpp" />
+    <ResourceCompile Include="qcache.rc" />
+    <ClInclude Include="qcstats.h" /><ClInclude Include="qcache.h" /><ClInclude Include="wkmem.hpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="WriteQueueCacheVersion" BeforeTargets="ResourceCompile">
+    <WriteLinesToFile File="$(IntDir)qcache-version.h"
+      Lines="#define QCACHE_VERSION_STRING &quot;$(BuildVersion)&quot;;#define QCACHE_VERSION_NUMERIC $(BuildVersionNumeric);#define QCACHE_ORIGINAL_FILENAME &quot;$(TargetName).sys&quot;;#define QCACHE_DESCRIPTION &quot;$(DriverDescription)&quot;"
+      Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+</Project>

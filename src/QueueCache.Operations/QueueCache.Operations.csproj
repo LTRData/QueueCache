@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="../QueueCache.Management/QueueCache.Management.csproj" /></ItemGroup>
+</Project>

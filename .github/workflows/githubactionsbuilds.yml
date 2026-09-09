@@ -1,0 +1,104 @@
+name: GitHubActionsBuilds
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: queuecache-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  generate_version_number:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Generate build number
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        id: buildnumber
+        uses: onyxmueller/build-tag-number@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compose shared native and managed version
+        id: version
+        env:
+          BUILD_NUMBER: ${{ steps.buildnumber.outputs.build_number || github.run_number }}
+        run: |
+          test "$BUILD_NUMBER" -le 65535
+          test "$GITHUB_RUN_ATTEMPT" -le 65535
+          echo "version=0.3.${BUILD_NUMBER}.${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+  build:
+    needs: generate_version_number
+    runs-on: windows-2025-vs2026
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Build, host-safe tests and package
+        shell: pwsh
+        run: ./build/Build.ps1 -LabWriteCache -Configuration '${{ matrix.configuration }}' -Version '${{ needs.generate_version_number.outputs.version }}'
+      - name: CLI contract checks (no disk access)
+        shell: pwsh
+        run: ./build/Test-Cli.ps1 -Configuration '${{ matrix.configuration }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QueueCache-x64-${{ matrix.configuration }}-${{ needs.generate_version_number.outputs.version }}-unsigned
+          path: artifacts/packages/*.zip
+          if-no-files-found: error
+      - name: Sign disposable lab artifact
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        run: |
+          $package = @(Get-ChildItem artifacts/packages -Directory)
+          if ($package.Count -ne 1) { throw 'Expected one fresh package' }
+          ./build/Sign-Lab.ps1 -UnsignedPackageDirectory $package[0].FullName -AllowWriteCache
+      - name: Compile lab installer
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) {
+            choco install innosetup --version=6.7.1 --yes --no-progress
+            if ($LASTEXITCODE) { throw 'Inno Setup installation failed' }
+          }
+          $signed = @(Get-ChildItem artifacts/lab -Directory)
+          if ($signed.Count -ne 1) { throw 'Expected one signed stage' }
+          ./build/Build-Installer.ps1 -SignedPackageDirectory $signed[0].FullName -Compiler $compiler
+      - uses: actions/upload-artifact@v4
+        if: matrix.configuration == 'Release'
+        with:
+          name: QueueCache-lab-setup-${{ needs.generate_version_number.outputs.version }}
+          path: |
+            artifacts/installers/*.exe
+            artifacts/lab/*.zip
+          if-no-files-found: error
+  release_github:
+    needs: [generate_version_number, build]
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: QueueCache-lab-setup-*
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.generate_version_number.outputs.version }}
+          name: QueueCache ${{ needs.generate_version_number.outputs.version }} — experimental lab
+          prerelease: true
+          generate_release_notes: true
+          body: 'Disposable secondary disks only. Test-signed driver; Secure Boot/test-mode prerequisites apply. Successful CI is not kernel correctness certification.'
+          files: release/*
+          fail_on_unmatched_files: true
