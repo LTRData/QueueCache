@@ -18,6 +18,14 @@ Reject(() => new CacheConfiguration().Validate(false), "fast preset requires ris
 Reject(() => new CacheConfiguration(0).Validate(true), "zero configuration budget");
 Reject(() => new CacheConfiguration(4097).Validate(true), "oversized configuration budget");
 Reject(() => new CacheConfiguration(64, (CachePreset)99).Validate(true), "unknown preset");
+var profile = new SavedConfiguration(1, "Q:", "test-device-identity", 200L << 30, new(), true);
+profile.Validate();
+Reject(() => (profile with { Version = 2 }).Validate(), "unknown profile version");
+Reject(() => (profile with { Volume = @"Q:\folder" }).Validate(), "profile requires volume not path");
+Reject(() => (profile with { Instance = "" }).Validate(), "profile requires disk identity");
+Reject(() => (profile with { Bytes = 0 }).Validate(), "profile requires disk size");
+Reject(() => (profile with { Configuration = null! }).Validate(), "profile requires configuration");
+Reject(() => (profile with { VolatileFlushAccepted = false }).Validate(), "saved fast profile requires acknowledgement");
 Check(s.Enabled && s.LastError == unchecked((int)0xC000009A), "flags and signed NTSTATUS");
 Check(s.DeviceBytes == 200L << 30 && s.WrittenBytes == 9L << 30, "64-bit byte counters");
 Check(s.QueueMemoryBytes == 3L << 30 && s.MaxQueueBytes == 4L << 30, "cache budgets above 2 GiB");

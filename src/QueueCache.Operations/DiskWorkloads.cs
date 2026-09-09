@@ -52,6 +52,7 @@ public static class DiskWorkloads
         var seed = BinaryPrimitives.ReadUInt64LittleEndian(id.ToByteArray());
         var block = new byte[1 << 20];
         var read = new byte[block.Length];
+        var replacements = new Dictionary<long, ulong>();
         progress?.Report($"Target {target.Root} ({target.Device}); retained files: {directory}. Policy/settings remain unchanged.");
         try
         {
@@ -77,6 +78,27 @@ public static class DiskWorkloads
                     }
                 }
                 checks.Add(new("write/overwrite/live-read", "PASS", "Every byte verified using unbuffered reads before explicit flush."));
+                if (!benchmark)
+                {
+                    progress?.Report("Checking 4 KiB random overwrites and immediate reads inside the new file.");
+                    var small = new byte[4096];
+                    var smallRead = new byte[4096];
+                    var random = new Random(BinaryPrimitives.ReadInt32LittleEndian(id.ToByteArray()));
+                    for (var iteration = 0; iteration < 2048; iteration++)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        // A deliberately small working set revisits blocks while the
+                        // background drainer may still be writing older versions.
+                        var offset = (long)random.Next(1024) * small.Length;
+                        var replacementSeed = seed + (ulong)passes + (ulong)iteration;
+                        Pattern(small, offset, replacementSeed);
+                        data.Write(offset, small);
+                        replacements[offset] = replacementSeed;
+                        data.Read(offset, smallRead);
+                        if (!small.AsSpan().SequenceEqual(smallRead)) throw new IOException("Random overwrite/live read mismatch.");
+                    }
+                    checks.Add(new("random-overwrite/live-read", "PASS", "2048 unbuffered 4 KiB overwrites with repeated addresses and immediate byte verification."));
+                }
                 data.Flush();
             }
             progress?.Report("Waiting for explicit driver drain; cancellation cannot discard acknowledged data.");
@@ -86,6 +108,9 @@ public static class DiskWorkloads
                 for (long offset = 0; offset < length; offset += block.Length)
                 {
                     Pattern(block, offset, seed + (ulong)passes - 1); data.Read(offset, read);
+                    foreach (var replacement in replacements)
+                        if (replacement.Key >= offset && replacement.Key < offset + block.Length)
+                            Pattern(block.AsSpan((int)(replacement.Key - offset), 4096), replacement.Key, replacement.Value);
                     if (!block.AsSpan().SequenceEqual(read)) throw new IOException("Post-drain reopen mismatch.");
                 }
             }
@@ -99,6 +124,19 @@ public static class DiskWorkloads
                 using var left = File.OpenRead(file); using var right = File.OpenRead(renamed);
                 if (!SHA256.HashData(left).AsSpan().SequenceEqual(SHA256.HashData(right))) throw new IOException("Copy/rename hash mismatch.");
                 checks.Add(new("copy/rename", "PASS", "SHA-256 matched; both newly created files retained."));
+                // Keep a portable verification record beside the retained files.
+                // No machine credentials or private repository context is recorded.
+                using (var manifest = new FileStream(Path.Combine(directory, "manifest.json"), FileMode.CreateNew, FileAccess.Write))
+                {
+                    using var sourceHash = File.OpenRead(file);
+                    System.Text.Json.JsonSerializer.Serialize(manifest, new
+                    {
+                        Version = 1, RunId = id, Bytes = length,
+                        Files = new[] { "source.bin", "renamed.bin" },
+                        Sha256 = Convert.ToHexString(SHA256.HashData(sourceHash))
+                    });
+                    manifest.Flush(true);
+                }
                 // Delete only a file created by this invocation. Windows decides when
                 // to issue TRIM; lack of a notification is SKIP, never a fabricated PASS.
                 var trimFile = Path.Combine(directory, "discard-probe.bin");

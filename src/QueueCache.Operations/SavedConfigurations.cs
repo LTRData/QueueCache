@@ -7,7 +7,16 @@ using Microsoft.Win32;
 namespace QueueCache.Operations;
 
 public sealed record SavedConfiguration(int Version, string Volume, string Instance, long Bytes,
-    CacheConfiguration Configuration, bool VolatileFlushAccepted);
+    CacheConfiguration Configuration, bool VolatileFlushAccepted)
+{
+    public void Validate()
+    {
+        if (Version != 1 || Volume is null || Volume.Length != 2 || !char.IsAsciiLetter(Volume[0]) || Volume[1] != ':' ||
+            string.IsNullOrWhiteSpace(Instance) || Instance.Length > 4096 || Bytes <= 0 || Configuration is null)
+            throw new InvalidDataException("Invalid or unsupported saved configuration.");
+        Configuration.Validate(VolatileFlushAccepted);
+    }
+}
 public sealed record RestoreResult(string Volume, bool Applied, string Detail);
 
 /// <summary>Machine profiles use HKLM (administrator-writable), never user-writable startup scripts.</summary>
@@ -37,8 +46,7 @@ public static class SavedConfigurations
             if (key.GetValueKind(name) != RegistryValueKind.String || key.GetValue(name) is not string json || json.Length > 16384)
                 throw new InvalidDataException("Invalid saved configuration.");
             var profile = JsonSerializer.Deserialize<SavedConfiguration>(json) ?? throw new InvalidDataException("Missing profile.");
-            if (profile.Version != 1) throw new InvalidDataException("Unsupported saved configuration version.");
-            profile.Configuration.Validate(profile.VolatileFlushAccepted);
+            profile.Validate();
             profiles.Add(profile);
         }
         return profiles;
@@ -53,7 +61,7 @@ public static class SavedConfigurations
             try
             {
                 var target = await DiskTarget.InspectAsync(profile.Volume, token);
-                if (target.Instance != profile.Instance || target.Bytes != profile.Bytes)
+                if (!string.Equals(target.Instance, profile.Instance, StringComparison.OrdinalIgnoreCase) || target.Bytes != profile.Bytes)
                     throw new IOException("Saved identity does not match this volume. Refusing to select another disk.");
                 await Task.Run(() => ConfigurationManager.Apply(target, profile.Configuration, profile.VolatileFlushAccepted, progress), token);
                 results.Add(new(profile.Volume, true, "Applied matching saved configuration."));

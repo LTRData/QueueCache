@@ -23,6 +23,7 @@ public static class ConfigurationManager
         bool acceptVolatileFlush, IProgress<string>? progress = null)
     {
         configuration.Validate(acceptVolatileFlush);
+        target.CheckExtents();
         using var device = new CacheDevice(target.Device, writable: true);
         var state = device.GetWriteCacheState();
         EnsureHealthy(state);
