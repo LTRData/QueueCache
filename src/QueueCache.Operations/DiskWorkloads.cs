@@ -104,14 +104,39 @@ public static class DiskWorkloads
                 var trimFile = Path.Combine(directory, "discard-probe.bin");
                 var trimBefore = cache.GetWriteCacheState();
                 using (var discard = new AlignedFile(trimFile, block.Length, create: true))
+                {
                     for (long offset = 0; offset < length; offset += block.Length)
                     { token.ThrowIfCancellationRequested(); Pattern(block, offset, seed); discard.Write(offset, block); }
+                    try
+                    {
+                        discard.Trim(block.Length, length - 2 * block.Length);
+                        // Trimmed contents are undefined; verify only untouched guards,
+                        // then rewrite every byte to test reuse before a real drain.
+                        foreach (var offset in new[] { 0L, length - block.Length })
+                        {
+                            Pattern(block, offset, seed); discard.Read(offset, read);
+                            if (!block.AsSpan().SequenceEqual(read)) throw new IOException("TRIM modified an untrimmed guard.");
+                        }
+                        for (long offset = 0; offset < length; offset += block.Length)
+                        { token.ThrowIfCancellationRequested(); Pattern(block, offset, seed + 99); discard.Write(offset, block); }
+                        cache.Control(WriteCacheAction.Flush);
+                        for (long offset = 0; offset < length; offset += block.Length)
+                        {
+                            Pattern(block, offset, seed + 99); discard.Read(offset, read);
+                            if (!block.AsSpan().SequenceEqual(read)) throw new IOException("TRIM/rewrite integrity mismatch.");
+                        }
+                        checks.Add(new("file-trim/guards/reuse", "PASS", "File-relative trim on the new probe only; untrimmed guards and rewritten contents verified."));
+                    }
+                    catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode is 1 or 50)
+                    { checks.Add(new("file-trim/guards/reuse", "SKIP", "Filesystem/storage does not support file-level TRIM.")); }
+                }
                 File.Delete(trimFile);
                 checks.Add(new("delete-new-file", "PASS", "Only this run's discard-probe.bin was deleted; source and copy retained."));
                 var trimAfter = cache.GetWriteCacheState();
                 checks.Add(new("TRIM-observed", trimAfter.TrimRequests > trimBefore.TrimRequests ? "PASS" : "SKIP",
                     $"Windows controls notification timing; discarded delta {trimAfter.DiscardedBytes - trimBefore.DiscardedBytes} bytes. This is not a complete range/race test."));
             }
+            var finalDrain = Stopwatch.StartNew(); cache.Control(WriteCacheAction.Flush); drainSeconds += finalDrain.Elapsed.TotalSeconds;
             var after = cache.GetWriteCacheState();
             ConfigurationManager.EnsureHealthy(after);
             if (after.Errors != before.Errors || after.Enabled != before.Enabled || after.UnsafeDefer != before.UnsafeDefer || after.BudgetBytes != before.BudgetBytes)

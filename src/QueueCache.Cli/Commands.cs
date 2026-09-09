@@ -19,17 +19,31 @@ internal static class Commands
         var preset = new Option<CachePreset>("--preset") { DefaultValueFactory = _ => CachePreset.Fast };
         var accept = new Option<bool>("--accept-volatile-flush");
         var disabled = new Option<bool>("--disabled");
+        var save = new Option<bool>("--save") { Description = "Save to administrator-only machine settings after successful Apply; installer startup task restores saved profiles." };
         apply.Arguments.Add(volume); apply.Options.Add(budget); apply.Options.Add(preset); apply.Options.Add(accept); apply.Options.Add(disabled);
+        apply.Options.Add(save);
         apply.SetAction(async (p, token) =>
         {
             var configuration = new CacheConfiguration(p.GetValue(budget), p.GetValue(preset), !p.GetValue(disabled));
             configuration.Validate(p.GetValue(accept)); // Fail before opening a disk.
             var target = await DiskTarget.InspectAsync(p.GetValue(volume)!, token);
             var state = await Task.Run(() => ConfigurationManager.Apply(target, configuration, p.GetValue(accept), new ConsoleProgress()), token);
+            if (p.GetValue(save)) SavedConfigurations.Save(target, configuration, p.GetValue(accept));
             Console.WriteLine(JsonSerializer.Serialize(state, JsonOptions));
             return 0;
         });
         root.Subcommands.Add(apply);
+        var profiles = new Command("profiles", "Show saved machine configurations without applying them.");
+        profiles.SetAction(_ => { Console.WriteLine(JsonSerializer.Serialize(SavedConfigurations.List(), JsonOptions)); return 0; });
+        root.Subcommands.Add(profiles);
+        var restore = new Command("restore", "Apply saved profiles only when volume, PnP identity and size still match. Used by the installer startup task.");
+        restore.SetAction(async (_, token) =>
+        {
+            var results = await SavedConfigurations.RestoreAsync(new ConsoleProgress(), token);
+            Console.WriteLine(JsonSerializer.Serialize(results, JsonOptions));
+            return results.All(r => r.Applied) ? 0 : 1;
+        });
+        root.Subcommands.Add(restore);
         foreach (var benchmark in new[] { false, true })
         {
             var command = new Command(benchmark ? "benchmark" : "test", "File-only current-boot workload. No reboot, format, fault injection or policy changes. Files are retained.");

@@ -33,12 +33,20 @@ try {
             Manage @{Action='Uninstall'}
         }
         UpdatePath $true
+        Unregister-ScheduledTask -TaskName 'QueueCache-Restore' -Confirm:$false -ErrorAction SilentlyContinue
         Write-Host 'Reboot to unload the driver. The retained kernel service/binary preserve the existing recovery path.'
         exit 3010
     }
     Write-Host 'QueueCache EXPERIMENTAL LAB installer. Secondary disposable disks only.' -ForegroundColor Yellow
     Write-Host 'Requires a snapshot, Secure Boot disabled and test-signing active. No automatic security changes or cache enablement.'
     UpdatePath $false
+    $restoreAction = New-ScheduledTaskAction -Execute $controller -Argument 'restore'
+    $restoreTrigger = New-ScheduledTaskTrigger -AtStartup
+    $restoreTrigger.Delay = 'PT30S'
+    $restorePrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+    $restoreSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+    Register-ScheduledTask -TaskName 'QueueCache-Restore' -Action $restoreAction -Trigger $restoreTrigger -Principal $restorePrincipal -Settings $restoreSettings -Force | Out-Null
+    Write-Host 'Startup task registered. Only explicitly saved HKLM profiles are restored; no saved profile means no automatic caching.'
     $disks = @(Get-Disk | Where-Object { -not $_.IsBoot -and -not $_.IsSystem -and $_.Number -gt 0 })
     $disks | Select-Object Number,FriendlyName,Size,PartitionStyle | Format-Table
     $answer = Read-Host 'Type the secondary disk number (or blank to install applications only)'

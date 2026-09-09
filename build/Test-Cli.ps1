@@ -14,3 +14,6 @@ if ($LASTEXITCODE -ne 2) { throw 'Invalid arguments must return 2 before device 
 & $cli apply 'Q:' 2>&1 | Out-Host
 if ($LASTEXITCODE -ne 1) { throw 'Fast preset without acceptance must fail before device access.' }
 Write-Host 'CLI contract checks passed. No disk handle opened.'
+# GitHub's pwsh wrapper propagates the last native exit code. The negative tests
+# intentionally leave it nonzero, so report this script's own successful result.
+exit 0

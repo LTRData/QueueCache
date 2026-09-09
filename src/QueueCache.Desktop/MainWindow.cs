@@ -17,6 +17,7 @@ public sealed class MainWindow : Window
     private readonly NumericUpDown budget = new() { Minimum = 1, Maximum = 4096, Value = 4096, Increment = 256, Width = 140 };
     private readonly ComboBox preset = new() { ItemsSource = Enum.GetValues<CachePreset>(), SelectedIndex = 0, Width = 130 };
     private readonly CheckBox acknowledge = new() { Content = "I accept loss/corruption after a crash, including acknowledged flushes." };
+    private readonly CheckBox save = new() { Content = "Save this configuration for the installed startup task to restore after reboot." };
     private readonly ProgressBar bucket = new() { Minimum = 0, Maximum = 100, Height = 28 };
     private readonly TextBlock snapshot = new() { Text = "Select a secondary NTFS volume. C: / OS / paging disks are excluded.", TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly TextBox log = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Height = 220 };
@@ -42,7 +43,9 @@ public sealed class MainWindow : Window
             var configuration = new CacheConfiguration((int)(budget.Value ?? 4096), (CachePreset)(preset.SelectedItem ?? CachePreset.Fast));
             var accepted = acknowledge.IsChecked == true;
             configuration.Validate(accepted);
-            await Task.Run(() => ConfigurationManager.Apply(selected, configuration, accepted, Progress()));
+            var progress = Progress();
+            await Task.Run(() => ConfigurationManager.Apply(selected, configuration, accepted, progress));
+            if (save.IsChecked == true) SavedConfigurations.Save(selected, configuration, accepted);
         }));
         actions.Children.Add(Button("Flush", () => Control(WriteCacheAction.Flush)));
         actions.Children.Add(Button("Disable & drain", () => Control(WriteCacheAction.Disable)));
@@ -52,7 +55,7 @@ public sealed class MainWindow : Window
         cancel.Click += (_, _) => operation?.Cancel();
         var panel = new StackPanel { Margin = new Thickness(24), Spacing = 16 };
         panel.Children.Add(new TextBlock { Text = "RAM write cache", FontSize = 26 });
-        panel.Children.Add(controls); panel.Children.Add(acknowledge); panel.Children.Add(actions); panel.Children.Add(bucket); panel.Children.Add(snapshot);
+        panel.Children.Add(controls); panel.Children.Add(acknowledge); panel.Children.Add(save); panel.Children.Add(actions); panel.Children.Add(bucket); panel.Children.Add(snapshot);
         panel.Children.Add(new TextBlock { Text = "Closing this window does NOT disable caching. Tests retain new files; benchmark is sequential and includes data generation/copy overhead.", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
         panel.Children.Add(cancel); panel.Children.Add(log); Content = panel;
         volumes.SelectionChanged += (_, _) => { target = null; previous = null; bucket.Value = 0; snapshot.Text = "Click Inspect to validate this volume before use."; };
@@ -95,7 +98,7 @@ public sealed class MainWindow : Window
     }
     private async Task Sample()
     {
-        if (sampling || busy || closing || target is not { } selected) return;
+        if (sampling || closing || target is not { } selected) return;
         sampling = true;
         try
         {
